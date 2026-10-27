@@ -243,6 +243,39 @@ header.top h1{color:var(--ink)}
 .lock-link{background:none;border:0;color:var(--accent);font:inherit;font-size:.88rem;cursor:pointer;padding:0;text-align:left;text-decoration:underline}
 .lock-row{display:flex;gap:8px}
 .lock-row .btn{flex:1}
+
+/* agenda: prévia semanal em checklist e visão do mês */
+.agseg{margin-left:auto}
+.wk{display:flex;flex-direction:column;gap:10px}
+.wk-box,.wk-day{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;box-shadow:0 3px 0 rgba(46,28,14,.35)}
+.wk-box h3{font-size:.95rem;margin:0 0 8px;font-weight:600;display:flex;justify-content:space-between;align-items:baseline}
+.wk-box h3 small{font-weight:400;color:var(--muted);font-size:.8rem}
+.wk-day.is-today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent),0 3px 0 rgba(46,28,14,.35)}
+.wk-day.is-sel{outline:2px solid var(--accent);outline-offset:2px}
+.wk-day.is-past .wk-list{opacity:.7}
+.wk-head{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:0;text-align:left}
+.wk-head .wn{font-family:var(--serif);font-size:1.35rem;line-height:1;width:2.2rem;height:2.2rem;display:grid;place-items:center;border-radius:50%;flex:none}
+.wk-day.is-today .wn{background:var(--accent);color:var(--accent-ink);font-size:1.05rem}
+.wk-head .wd2{font-weight:600}
+.wk-head .wm{color:var(--muted);font-size:.82rem}
+.wk-head .wc{margin-left:auto;color:var(--muted);font-size:.8rem;white-space:nowrap}
+.wk-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.wk-list li{display:flex;align-items:center;gap:10px;padding:5px 4px;border-radius:8px}
+.wk-list li:hover{background:var(--bg)}
+.wk-list li .t{flex:1;min-width:0;overflow-wrap:anywhere}
+.wk-list li.done .t{text-decoration:line-through;color:var(--muted)}
+.wk-list .time{min-width:2.8em}
+.wk-list .status{padding:2px 10px;font-size:.75rem}
+.wk-free{color:var(--muted);font-size:.85rem;margin:6px 0 0 3.2rem}
+.wk-add{border:0;background:none;color:var(--accent);font:inherit;font-size:.82rem;font-weight:600;padding:4px 0 0 3.2rem;cursor:pointer}
+.mcell .ev{font-size:.72rem;padding:2px 5px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:3px solid transparent}
+.mcell .ev.loja{background:var(--loja-soft);border-left-color:var(--loja)}
+.mcell .ev.pessoal{background:var(--pessoal-soft);border-left-color:var(--pessoal)}
+.mcell .ev.done{opacity:.55;text-decoration:line-through}
+.mcell .ev b{font-weight:600}
+.mcell .tk{margin-top:auto;font-size:.7rem;color:var(--muted)}
+@media (max-width:760px){ .mcell .ev,.mcell .tk{display:none} }
+@media (max-width:640px){ .agseg{margin-left:0} }
 </style>
 </head>
 <body>
@@ -275,7 +308,7 @@ header.top h1{color:var(--ink)}
   <header class="top">
     <h1>Minha agenda</h1>
     <div class="seg" role="tablist" aria-label="Seções">
-      <button role="tab" aria-selected="true" data-tab="agenda">Semana</button>
+      <button role="tab" aria-selected="true" data-tab="agenda">Agenda</button>
       <button role="tab" aria-selected="false" data-tab="pagamentos">Pagamentos</button>
     </div>
     <div class="seg" aria-label="Mostrar">
@@ -290,13 +323,17 @@ header.top h1{color:var(--ink)}
   <main>
     <div id="view-agenda">
       <div class="toolbar">
-        <button class="iconbtn" data-action="week-prev" aria-label="Semana anterior">‹</button>
-        <button class="iconbtn" data-action="week-next" aria-label="Próxima semana">›</button>
+        <button class="iconbtn" data-action="week-prev" aria-label="Anterior">‹</button>
+        <button class="iconbtn" data-action="week-next" aria-label="Próximo">›</button>
         <h2 id="week-label"></h2>
         <button class="ghost" data-action="go-today">Hoje</button>
+        <div class="seg agseg" aria-label="Visualização">
+          <button aria-pressed="true" data-agview="semana">Semana</button>
+          <button aria-pressed="false" data-agview="mes">Mês</button>
+        </div>
       </div>
       <div class="agenda">
-        <div class="week" id="week"></div>
+        <div id="week"></div>
         <aside class="panel" id="panel"></aside>
       </div>
     </div>
@@ -405,7 +442,7 @@ header.top h1{color:var(--ink)}
   const WDS = ["dom","seg","ter","qua","qui","sex","sáb"];
   const catOf = x => x.categoria === "loja" ? "loja" : "pessoal";
 
-  const ui = { tab:"agenda", filtro:"todos", weekStart:startOfWeek(new Date()), selected:todayIso(), month:ym(todayIso()), lastCat:"loja", payView:"cal", payDay:null };
+  const ui = { agView:"semana", calMonth:ym(todayIso()), tab:"agenda", filtro:"todos", weekStart:startOfWeek(new Date()), selected:todayIso(), month:ym(todayIso()), lastCat:"loja", payView:"cal", payDay:null };
   const visible = x => ui.filtro === "todos" || catOf(x) === ui.filtro;
 
   /* ---------- storage ---------- */
@@ -551,27 +588,86 @@ header.top h1{color:var(--ink)}
   /* ---------- render ---------- */
   function render(){ if (ui.tab === "agenda"){ renderWeek(); renderPanel(); } else renderPayments(); }
 
+  const weekTasks = ws => data.tarefas.filter(visible).filter(t => t.semana === ws)
+      .sort((a,b) => (a.criadoEm||0)-(b.criadoEm||0));
+
   function renderWeek(){
-    const ws = ui.weekStart, we = addDays(ws,6);
+    if (ui.agView === "mes") return renderMonthAgenda();
+    const oldF = document.getElementById("form-wtask");
+    const hadFocus = !!(oldF && document.activeElement === oldF.titulo);
+    if (oldF) ui._wtDraft = oldF.titulo.value;
+    const ws = ui.weekStart, we = addDays(ws,6), wsIso = iso(ws);
     const fmt = d => d.toLocaleDateString("pt-BR",{day:"numeric",month:"short"}).replace(".","");
     document.getElementById("week-label").textContent = fmt(ws)+" a "+fmt(we)+" de "+we.getFullYear();
-    const today = todayIso(); let html = "";
+    const today = todayIso();
+    const wt = weekTasks(wsIso), wtDone = wt.filter(t => t.feita).length;
+    let html = `<div class="wk"><section class="wk-box">
+      <h3>Tarefas da semana ${wt.length?`<small>${wtDone} de ${wt.length}</small>`:""}</h3>
+      ${wt.length?`<div class="bar" style="margin:0 0 8px"><i style="width:${Math.round(wtDone/wt.length*100)}%"></i></div>`:""}
+      ${wt.length ? `<ul class="wk-list" style="margin-top:0">${wt.map(t => `<li class="${t.feita?"done":""}">
+          <input type="checkbox" class="check" data-action="toggle-wtask" data-id="${t.id}" ${t.feita?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
+          <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>
+          <button class="del" data-action="del-task" data-id="${t.id}" aria-label="Apagar tarefa">×</button></li>`).join("")}</ul>`
+        : `<p class="empty" style="margin:0 0 8px">O que precisa ser feito esta semana, sem dia certo?</p>`}
+      <form class="add" id="form-wtask">
+        <input type="text" name="titulo" placeholder="Nova tarefa da semana" required maxlength="140">
+        <button class="btn" type="submit">Adicionar</button>
+        ${catPicker("categoria")}
+      </form>
+    </section>`;
     for (let i=0;i<7;i++){
       const d = addDays(ws,i), ds = iso(d);
       const ev = eventsOn(ds), ts = tasksOn(ds), ps = paymentsOn(ds);
-      const done = ts.filter(t => taskDone(t,ds)).length;
-      const cls = ["day"]; if (ds===today) cls.push("is-today"); if (ds<today) cls.push("is-past");
-      let chips = ev.slice(0,4).map(e => `<div class="chip ${catOf(e)}">${e.hora?`<b>${esc(e.hora)}</b> `:""}${esc(e.titulo)}</div>`).join("");
-      if (ev.length>4) chips += `<div class="chip more">+${ev.length-4} compromissos</div>`;
-      chips += ps.map(({p}) => `<div class="chip pay ${catOf(p)} ${payStatus(p,ds)}" title="${esc(p.titulo)} ${money(p.valor)}">${esc(p.titulo)} <b>${money(p.valor)}</b></div>`).join("");
-      const dots = [...ev.slice(0,3), ...ps.slice(0,2).map(x=>x.p)].map(x => `<span class="${catOf(x)}"></span>`).join("");
-      html += `<button class="${cls.join(" ")}" data-action="select-day" data-date="${ds}" aria-pressed="${ds===ui.selected}" aria-label="${esc(cap(d.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})))}">
-        <div class="day-head"><span class="wd">${WD[i]}</span><span class="num">${d.getDate()}</span></div>
-        <div class="chips">${chips}</div><div class="dots">${dots}</div>
-        ${ts.length?`<div class="day-foot">${done} de ${ts.length} tarefas<div class="bar"><i style="width:${Math.round(done/ts.length*100)}%"></i></div></div>`:""}
-      </button>`;
+      const total = ev.length + ts.length, feitos = ev.filter(e => e.feito).length + ts.filter(t => taskDone(t,ds)).length;
+      const cls = ["wk-day"]; if (ds===today) cls.push("is-today"); if (ds<today) cls.push("is-past"); if (ds===ui.selected) cls.push("is-sel");
+      const mes = d.toLocaleDateString("pt-BR",{month:"short"}).replace(".","");
+      let items = "";
+      items += ev.map(e => `<li class="${e.feito?"done":""}">
+          <input type="checkbox" class="check" data-action="toggle-event" data-id="${e.id}" ${e.feito?"checked":""} aria-label="Concluir ${esc(e.titulo)}">
+          <span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span></li>`).join("");
+      items += ts.map(t => { const ok = taskDone(t,ds); return `<li class="${ok?"done":""}">
+          <input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" data-date="${ds}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
+          <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>${t.diaria?'<span class="tag">todo dia</span>':""}</li>`; }).join("");
+      items += ps.map(({p}) => { const st = payStatus(p,ds); return `<li>
+          <span class="dot ${catOf(p)}" style="margin-left:30px"></span><span class="t">${esc(p.titulo)} <small style="color:var(--muted)">${money(p.valor)}</small></span>
+          <button class="status ${st}" data-action="toggle-pay" data-id="${p.id}" data-date="${ds}">${statusLabel(st)}</button></li>`; }).join("");
+      html += `<section class="${cls.join(" ")}">
+        <button class="wk-head" data-action="select-day" data-date="${ds}" aria-label="Abrir ${esc(cap(d.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})))}">
+          <span class="wn">${d.getDate()}</span><span><span class="wd2">${cap(d.toLocaleDateString("pt-BR",{weekday:"long"}))}</span> <span class="wm">${mes}</span></span>
+          <span class="wc">${total ? `${feitos} de ${total} feitos` : ""}</span>
+        </button>
+        ${items ? `<ul class="wk-list">${items}</ul>` : `<p class="wk-free">Livre</p>`}
+        <button class="wk-add" data-action="add-on-day" data-date="${ds}">+ Adicionar neste dia</button>
+      </section>`;
     }
+    html += `</div>`;
     document.getElementById("week").innerHTML = html;
+    const kept = document.getElementById("form-wtask");
+    if (ui._wtDraft && kept) kept.titulo.value = ui._wtDraft;
+    if (hadFocus && kept) kept.titulo.focus();
+  }
+
+  function renderMonthAgenda(){
+    const [y,m] = ui.calMonth.split("-").map(Number);
+    document.getElementById("week-label").textContent = cap(new Date(y,m-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"}));
+    const first = new Date(y, m-1, 1), start = addDays(first, -((first.getDay()+6)%7));
+    const last = new Date(y, m-1, dim(y, m-1)), end = addDays(last, 6-((last.getDay()+6)%7));
+    const today = todayIso();
+    let html = '<div class="mgrid">' + WD.map(w => `<div class="wh">${w}</div>`).join("");
+    for (let d = start; d <= end; d = addDays(d,1)){
+      const ds = iso(d), inMonth = ym(ds) === ui.calMonth;
+      const cls = ["mcell"]; if (!inMonth) cls.push("out"); if (ds === today) cls.push("today");
+      if (!inMonth){ html += `<div class="${cls.join(" ")}"><span class="mn">${d.getDate()}</span></div>`; continue; }
+      const ev = eventsOn(ds), ts = tasksOn(ds), ps = paymentsOn(ds);
+      const tsDone = ts.filter(t => taskDone(t,ds)).length;
+      const chips = ev.slice(0,3).map(e => `<div class="ev ${catOf(e)} ${e.feito?"done":""}">${e.hora?`<b>${esc(e.hora)}</b> `:""}${esc(e.titulo)}</div>`).join("")
+        + (ev.length > 3 ? `<div class="ev" style="background:none;color:var(--muted)">+${ev.length-3}</div>` : "");
+      const dots = [...ev.slice(0,4), ...ps.slice(0,2).map(x => x.p)].map(x => `<span class="${catOf(x)}"></span>`).join("");
+      const extra = [ts.length ? `${tsDone}/${ts.length} tarefas` : "", ps.length ? `${ps.length} pagamento${ps.length>1?"s":""}` : ""].filter(Boolean).join(" · ");
+      html += `<button class="${cls.join(" ")}" data-action="select-day" data-date="${ds}" aria-pressed="${ui.selected===ds}" aria-label="${d.getDate()}: ${ev.length} compromissos">
+        <span class="mn">${d.getDate()}</span>${chips}<span class="mdots">${dots}</span>${extra?`<span class="tk">${extra}</span>`:""}</button>`;
+    }
+    document.getElementById("week").innerHTML = html + '</div>';
   }
 
   const catPicker = (name) => `<div class="catsel" role="radiogroup" aria-label="Categoria">
@@ -606,7 +702,7 @@ header.top h1{color:var(--ink)}
       </section>
       <section>
         <h3>Compromissos</h3>
-        ${ev.length ? `<ul class="list">${ev.map(e => `<li><span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span>
+        ${ev.length ? `<ul class="list">${ev.map(e => `<li class="${e.feito?"done":""}"><input type="checkbox" class="check" data-action="toggle-event" data-id="${e.id}" ${e.feito?"checked":""} aria-label="Concluir ${esc(e.titulo)}"><span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span>
           <button class="del" data-action="del-event" data-id="${e.id}" aria-label="Apagar compromisso">×</button></li>`).join("")}</ul>`
           : `<p class="empty">Dia livre de compromissos.</p>`}
         <form class="add" id="form-event">
@@ -730,7 +826,7 @@ header.top h1{color:var(--ink)}
 
   /* ---------- eventos ---------- */
   document.addEventListener("click", e => {
-    const el = e.target.closest("[data-action],[data-tab],[data-filter],[data-payview]");
+    const el = e.target.closest("[data-action],[data-tab],[data-filter],[data-payview],[data-agview]");
     if (!el) return;
     if (el.dataset.tab){
       ui.tab = el.dataset.tab;
@@ -745,6 +841,12 @@ header.top h1{color:var(--ink)}
       if (ui.filtro !== "todos") ui.lastCat = ui.filtro;
       render(); return;
     }
+    if (el.dataset.agview){
+      ui.agView = el.dataset.agview;
+      if (ui.agView === "mes") ui.calMonth = ym(ui.selected);
+      document.querySelectorAll("[data-agview]").forEach(b => b.setAttribute("aria-pressed", b===el));
+      render(); return;
+    }
     if (el.dataset.payview){
       ui.payView = el.dataset.payview;
       document.querySelectorAll("[data-payview]").forEach(b => b.setAttribute("aria-pressed", b===el));
@@ -752,11 +854,25 @@ header.top h1{color:var(--ink)}
     }
     const id = el.dataset.id;
     switch (el.dataset.action){
-      case "week-prev": ui.weekStart = addDays(ui.weekStart,-7); ui.selected = iso(ui.weekStart); render(); break;
-      case "week-next": ui.weekStart = addDays(ui.weekStart,7); ui.selected = iso(ui.weekStart); render(); break;
-      case "go-today": ui.weekStart = startOfWeek(new Date()); ui.selected = todayIso(); render(); break;
-      case "select-day":
+      case "week-prev": case "week-next": {
+        const dir = el.dataset.action === "week-next" ? 1 : -1;
+        if (ui.agView === "mes"){
+          const [y,m] = ui.calMonth.split("-").map(Number); const d = new Date(y, m-1+dir, 1);
+          ui.calMonth = d.getFullYear()+"-"+pad(d.getMonth()+1);
+          ui.selected = ui.calMonth === ym(todayIso()) ? todayIso() : iso(d);
+          ui.weekStart = startOfWeek(parse(ui.selected));
+        } else { ui.weekStart = addDays(ui.weekStart, 7*dir); ui.selected = iso(ui.weekStart); }
+        render(); break;
+      }
+      case "go-today": ui.weekStart = startOfWeek(new Date()); ui.selected = todayIso(); ui.calMonth = ym(todayIso()); render(); break;
+      case "add-on-day": {
         ui.selected = el.dataset.date; render();
+        const f = document.getElementById("form-event");
+        if (f){ f.scrollIntoView({behavior:"smooth", block:"center"}); f.querySelector("input[type=text]").focus({preventScroll:true}); }
+        break;
+      }
+      case "select-day":
+        ui.selected = el.dataset.date; ui.weekStart = startOfWeek(parse(ui.selected)); render();
         if (window.matchMedia("(max-width:980px)").matches) document.getElementById("panel").scrollIntoView({behavior:"smooth",block:"start"});
         break;
       case "month-prev": case "month-next": {
@@ -767,12 +883,14 @@ header.top h1{color:var(--ink)}
       case "go-month": ui.month = ym(todayIso()); render(); break;
       case "pay-day": ui.payDay = ui.payDay === el.dataset.date ? null : el.dataset.date; render(); break;
       case "toggle-task": {
-        const t = data.tarefas.find(x => x.id===id); if (!t) return; const ds = ui.selected;
+        const t = data.tarefas.find(x => x.id===id); if (!t) return; const ds = el.dataset.date || ui.selected;
         if (t.diaria){ let arr = (t.feitasEm||[]).slice(); arr = arr.includes(ds) ? arr.filter(x => x!==ds) : arr.concat(ds);
           update("tarefas", id, {feitasEm: arr.sort().slice(-120)}); }
         else update("tarefas", id, {feita: !t.feita});
         break;
       }
+      case "toggle-wtask": { const t = data.tarefas.find(x => x.id===id); if (t) update("tarefas", id, {feita: !t.feita}); break; }
+      case "toggle-event": { const ev = data.compromissos.find(x => x.id===id); if (ev) update("compromissos", id, {feito: !ev.feito}); break; }
       case "del-task": remove("tarefas", id); break;
       case "del-event": remove("compromissos", id); break;
       case "edit-pay": { const p = data.pagamentos.find(x => x.id===id); if (p) editPay(p); break; }
@@ -794,19 +912,28 @@ header.top h1{color:var(--ink)}
   });
 
   document.addEventListener("submit", e => {
-    const f = e.target; e.preventDefault();
+    const f = e.target;
+    if (!["form-task","form-event","form-pay","form-wtask"].includes(f.id)) return;
+    e.preventDefault();
     const fd = new FormData(f);
     const titulo = String(fd.get("titulo")||"").trim();
     if (!titulo){ toast("Escreva uma descrição."); return; }
     const categoria = fd.get("categoria") === "pessoal" ? "pessoal" : "loja";
     ui.lastCat = categoria;
     if (f.id === "form-task"){
+      f.reset();
       add("tarefas", {titulo, categoria, data: ui.selected, diaria: !!fd.get("diaria"), feita:false, feitasEm:[]});
-      f.reset(); return;
+      return;
+    }
+    if (f.id === "form-wtask"){
+      ui._wtDraft = ""; f.reset();
+      add("tarefas", {titulo, categoria, semana: iso(ui.weekStart), feita:false});
+      return;
     }
     if (f.id === "form-event"){
-      add("compromissos", {titulo, categoria, data: ui.selected, hora: String(fd.get("hora")||"")});
-      f.reset(); return;
+      f.reset();
+      add("compromissos", {titulo, categoria, data: ui.selected, hora: String(fd.get("hora")||""), feito:false});
+      return;
     }
     if (f.id === "form-pay"){
       const vencimento = String(fd.get("vencimento")||"");
