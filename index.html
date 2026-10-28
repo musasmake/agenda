@@ -617,7 +617,7 @@ header.top h1{color:var(--ink)}
     </section>`;
     for (let i=0;i<7;i++){
       const d = addDays(ws,i), ds = iso(d);
-      const ev = eventsOn(ds), ts = tasksOn(ds), ps = paymentsOn(ds);
+      const ev = eventsOn(ds), ts = tasksOn(ds), ps = [];
       const total = ev.length + ts.length, feitos = ev.filter(e => e.feito).length + ts.filter(t => taskDone(t,ds)).length;
       const cls = ["wk-day"]; if (ds===today) cls.push("is-today"); if (ds<today) cls.push("is-past"); if (ds===ui.selected) cls.push("is-sel");
       const mes = d.toLocaleDateString("pt-BR",{month:"short"}).replace(".","");
@@ -658,7 +658,7 @@ header.top h1{color:var(--ink)}
       const ds = iso(d), inMonth = ym(ds) === ui.calMonth;
       const cls = ["mcell"]; if (!inMonth) cls.push("out"); if (ds === today) cls.push("today");
       if (!inMonth){ html += `<div class="${cls.join(" ")}"><span class="mn">${d.getDate()}</span></div>`; continue; }
-      const ev = eventsOn(ds), ts = tasksOn(ds), ps = paymentsOn(ds);
+      const ev = eventsOn(ds), ts = tasksOn(ds), ps = [];
       const tsDone = ts.filter(t => taskDone(t,ds)).length;
       const chips = ev.slice(0,3).map(e => `<div class="ev ${catOf(e)} ${e.feito?"done":""}">${e.hora?`<b>${esc(e.hora)}</b> `:""}${esc(e.titulo)}</div>`).join("")
         + (ev.length > 3 ? `<div class="ev" style="background:none;color:var(--muted)">+${ev.length-3}</div>` : "");
@@ -676,7 +676,7 @@ header.top h1{color:var(--ink)}
 
   function renderPanel(){
     const ds = ui.selected, d = parse(ds);
-    const ts = tasksOn(ds), ev = eventsOn(ds), ps = paymentsOn(ds);
+    const ts = tasksOn(ds), ev = eventsOn(ds), ps = [];
     const done = ts.filter(t => taskDone(t,ds)).length;
     const title = cap(d.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}));
     const rel = ds===todayIso() ? "Hoje" : ds < todayIso() ? "Dia que já passou" : "Dia futuro";
