@@ -288,6 +288,12 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .mcell .ev.tsk.pessoal{border-left-color:var(--pessoal)}
 .mcell .ev.more{background:none;color:var(--muted);border:0}
 
+/* editar tarefa */
+.t.editable{cursor:text;border-radius:4px}
+.t.editable:hover{background:var(--bg);box-shadow:0 0 0 3px var(--bg)}
+[data-drag] .t.editable{cursor:text}
+.edit-inline{flex:1;min-width:0;border:1px solid var(--accent);background:var(--bg);border-radius:8px;padding:4px 8px;font:inherit;-webkit-user-select:text;user-select:text}
+
 /* escolher o dia no painel */
 .panel-nav{display:flex;align-items:center;gap:6px;margin-bottom:12px}
 .panel-nav input[type=date]{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:7px 10px}
@@ -633,7 +639,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
       .sort((a,b) => (a.hora||"99").localeCompare(b.hora||"99"));
 
   /* ---------- render ---------- */
-  function render(){ if (ui.tab === "agenda"){ renderWeek(); renderPanel(); } else renderPayments(); }
+  function render(){ if (ui.tab === "agenda"){ renderWeek(); renderPanel(); focusEdit(); } else renderPayments(); }
 
   const weekTasks = ws => data.tarefas.filter(visible).filter(t => t.semana === ws)
       .sort((a,b) => (a.criadoEm||0)-(b.criadoEm||0));
@@ -653,7 +659,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
       ${wt.length?`<div class="bar" style="margin:0 0 8px"><i style="width:${Math.round(wtDone/wt.length*100)}%"></i></div>`:""}
       ${wt.length ? `<ul class="wk-list" style="margin-top:0">${wt.map(t => `<li class="${t.feita?"done":""}">
           <input type="checkbox" class="check" data-action="toggle-wtask" data-id="${t.id}" ${t.feita?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
-          <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>
+          <span class="dot ${catOf(t)}"></span>${taskTitle(t, "wbox")}
           <button class="del" data-action="del-task" data-id="${t.id}" aria-label="Apagar tarefa">×</button></li>`).join("")}</ul>`
         : `<p class="empty" style="margin:0 0 8px">O que precisa ser feito esta semana, sem dia certo?</p>`}
       <form class="add" id="form-wtask">
@@ -674,7 +680,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
           <span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span></li>`).join("");
       items += ts.map(t => { const ok = taskDone(t,ds); return `<li class="${ok?"done":""}" ${t.diaria?"":dragAttrs("task", t, ds)}>
           <input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" data-date="${ds}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
-          <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>${t.diaria?'<span class="tag">todo dia</span>':""}</li>`; }).join("");
+          <span class="dot ${catOf(t)}"></span>${taskTitle(t, "week")}${t.diaria?'<span class="tag">todo dia</span>':""}</li>`; }).join("");
       items += ps.map(({p}) => { const st = payStatus(p,ds); return `<li>
           <span class="dot ${catOf(p)}" style="margin-left:30px"></span><span class="t">${esc(p.titulo)} <small style="color:var(--muted)">${money(p.valor)}</small></span>
           <button class="status ${st}" data-action="toggle-pay" data-id="${p.id}" data-date="${ds}">${statusLabel(st)}</button></li>`; }).join("");
@@ -720,6 +726,24 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
     document.getElementById("week").innerHTML = html + '</div>';
   }
 
+  // nome da tarefa: clicável para editar; vira um campo enquanto está sendo editado
+  const taskTitle = (t, where) => ui.editTask && ui.editTask.id === t.id && ui.editTask.where === where
+    ? `<input type="text" class="edit-inline" data-edit-id="${esc(t.id)}" value="${esc(ui.editTask.draft)}" maxlength="140" aria-label="Editar tarefa">`
+    : `<span class="t editable" data-action="edit-task" data-id="${esc(t.id)}" data-where="${where}" title="Clique para editar">${esc(t.titulo)}</span>`;
+  function focusEdit(){
+    const inp = document.querySelector(".edit-inline"); if (!inp || document.activeElement === inp) return;
+    inp.focus(); const n = inp.value.length; inp.setSelectionRange(n, n);
+  }
+  function finishEdit(save){
+    const ed = ui.editTask; if (!ed) return;
+    const inp = document.querySelector(".edit-inline");
+    const val = (inp ? inp.value : ed.draft).trim();
+    ui.editTask = null;
+    const t = data.tarefas.find(x => x.id === ed.id);
+    if (save && t && val && val !== t.titulo){ update("tarefas", ed.id, {titulo: val}); toast("Tarefa atualizada"); }
+    else render();
+  }
+
   // atributos para um item que pode ser arrastado para outra data
   const dragAttrs = (kind, x, date, extra) => `data-drag="${kind}" data-id="${esc(x.id)}" data-date="${date}" data-title="${esc(x.titulo)}" data-cat="${catOf(x)}"${extra||""}`;
 
@@ -753,7 +777,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
         ${ts.length?`<div class="bar" style="margin:0 0 10px"><i style="width:${Math.round(done/ts.length*100)}%"></i></div>`:""}
         ${ts.length ? `<ul class="list">${ts.map(t => { const ok = taskDone(t,ds);
           return `<li class="${ok?"done":""}" ${t.diaria?"":dragAttrs("task", t, ds)}><input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
-            <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>${t.diaria?'<span class="tag">todo dia</span>':""}
+            <span class="dot ${catOf(t)}"></span>${taskTitle(t, "panel")}${t.diaria?'<span class="tag">todo dia</span>':""}
             <button class="del" data-action="del-task" data-id="${t.id}" aria-label="Apagar tarefa">×</button></li>`; }).join("")}</ul>`
           : `<p class="empty">Nenhuma tarefa ainda. O que precisa sair do papel hoje?</p>`}
         <form class="add" id="form-task">
@@ -929,6 +953,11 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
         render(); break;
       }
       case "go-today": ui.weekStart = startOfWeek(new Date()); ui.selected = todayIso(); ui.calMonth = ym(todayIso()); render(); break;
+      case "edit-task": {
+        const t = data.tarefas.find(x => x.id === id); if (!t) break;
+        if (ui.editTask) finishEdit(true);
+        ui.editTask = {id, where: el.dataset.where, draft: t.titulo}; render(); break;
+      }
       case "day-prev": case "day-next": setSelected(iso(addDays(parse(ui.selected), el.dataset.action === "day-next" ? 1 : -1))); break;
       case "add-on-day": {
         ui.selected = el.dataset.date; render();
@@ -1020,6 +1049,18 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
       else { add("pagamentos", {...obj, pagos:[]}); toast("Pagamento adicionado"); }
       ui.month = ym(vencimento); resetPayForm(); render();
     }
+  });
+
+  /* ---------- editar o nome da tarefa ---------- */
+  document.addEventListener("input", e => { if (e.target.classList.contains("edit-inline") && ui.editTask) ui.editTask.draft = e.target.value; });
+  document.addEventListener("keydown", e => {
+    if (!e.target.classList || !e.target.classList.contains("edit-inline")) return;
+    if (e.key === "Enter"){ e.preventDefault(); finishEdit(true); }
+    else if (e.key === "Escape"){ e.preventDefault(); finishEdit(false); }
+  });
+  document.addEventListener("focusout", e => {
+    if (!e.target.classList || !e.target.classList.contains("edit-inline")) return;
+    setTimeout(() => { if (ui.editTask && !document.activeElement.classList.contains("edit-inline")) finishEdit(true); }, 0);
   });
 
   /* ---------- escolher o dia no painel ---------- */
