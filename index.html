@@ -276,6 +276,30 @@ header.top h1{color:var(--ink)}
 .mcell .tk{margin-top:auto;font-size:.7rem;color:var(--muted)}
 @media (max-width:760px){ .mcell .ev,.mcell .tk{display:none} }
 @media (max-width:640px){ .agseg{margin-left:0} }
+
+/* arrastar para outra data */
+[data-drag]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
+.dragging{opacity:.35}
+.drag-ghost{position:fixed;left:0;top:0;z-index:1000;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-left:4px solid var(--loja);border-radius:8px;padding:6px 10px;font-size:.85rem;box-shadow:0 8px 20px rgba(0,0,0,.28);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drag-ghost.pessoal{border-left-color:var(--pessoal)}
+.drop-over{outline:2px dashed var(--accent)!important;outline-offset:-3px;background:var(--accent-soft)!important}
+body.is-dragging,body.is-dragging *{cursor:grabbing!important}
+.mcell .ev.tsk{background:none;border:1px dashed var(--line);border-left:3px solid var(--loja)}
+.mcell .ev.tsk.pessoal{border-left-color:var(--pessoal)}
+.mcell .ev.more{background:none;color:var(--muted);border:0}
+
+/* escolher o dia no painel */
+.panel-nav{display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.panel-nav input[type=date]{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:7px 10px}
+.panel-nav .iconbtn{width:32px;height:32px;flex:none}
+
+/* pergunta ao mudar uma parcela */
+.modal{position:fixed;inset:0;background:rgba(30,18,8,.45);display:grid;place-items:center;padding:20px;z-index:900}
+.modal-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px 20px;width:min(420px,100%);box-shadow:0 4px 0 rgba(46,28,14,.4);display:flex;flex-direction:column;gap:10px}
+.modal-card h2{font-family:var(--serif);font-weight:400;font-size:1.35rem;margin:0}
+.modal-card p{margin:0 0 4px;color:var(--muted)}
+.btn.choice{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;padding:12px 14px}
+.btn.choice small{font-weight:400;opacity:.85;font-size:.82rem}
 </style>
 </head>
 <body>
@@ -417,6 +441,15 @@ header.top h1{color:var(--ink)}
   </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="modal" id="move-modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="move-title">
+    <h2 id="move-title">Mudar pagamento</h2>
+    <p id="move-text"></p>
+    <button class="btn choice" type="button" data-choice="one">Só esta parcela<small id="move-one"></small></button>
+    <button class="btn choice" type="button" data-choice="all">Todas as parcelas<small id="move-all"></small></button>
+    <button class="btn sec" type="button" data-choice="cancel">Cancelar</button>
+  </div>
+</div>
 
 <script>
 (function(){
@@ -536,8 +569,22 @@ header.top h1{color:var(--ink)}
     if (r.modo === "semana"){ const i = nthInfo(sd); return nthWeekday(y, m0, i.wd, i.n, i.n >= 5); }
     return new Date(y, m0, Math.min(sd.getDate(), dim(y, m0)));
   }
-  // retorna [{date, idx}] das ocorrências dentro do mês "YYYY-MM"
+  // ocorrências já com as parcelas remarcadas individualmente (p.movidos = {dataOriginal: novaData})
+  // retorna [{date, idx, orig?}]
   function occurrencesIn(p, month){
+    const mv = p.movidos || {}, keys = Object.keys(mv);
+    if (!keys.length) return naturalOcc(p, month);
+    const out = naturalOcc(p, month).filter(o => !mv[o.date]);
+    keys.forEach(de => {
+      const para = mv[de]; if (!para || ym(para) !== month) return;
+      const n = naturalOcc(p, ym(de)).find(o => o.date === de);
+      if (n) out.push({date:para, idx:n.idx, orig:de});
+    });
+    return out.sort((a,b) => a.date.localeCompare(b.date));
+  }
+  const idxOf = (p, date) => { const o = naturalOcc(p, ym(date)).find(x => x.date === date); return o ? o.idx : -1; };
+  // retorna [{date, idx}] das ocorrências "naturais" dentro do mês "YYYY-MM"
+  function naturalOcc(p, month){
     if (!p.vencimento) return [];
     const r = rep(p);
     if (!r) return ym(p.vencimento) === month ? [{date:p.vencimento, idx:0}] : [];
@@ -622,16 +669,16 @@ header.top h1{color:var(--ink)}
       const cls = ["wk-day"]; if (ds===today) cls.push("is-today"); if (ds<today) cls.push("is-past"); if (ds===ui.selected) cls.push("is-sel");
       const mes = d.toLocaleDateString("pt-BR",{month:"short"}).replace(".","");
       let items = "";
-      items += ev.map(e => `<li class="${e.feito?"done":""}">
+      items += ev.map(e => `<li class="${e.feito?"done":""}" ${dragAttrs("event", e, ds)}>
           <input type="checkbox" class="check" data-action="toggle-event" data-id="${e.id}" ${e.feito?"checked":""} aria-label="Concluir ${esc(e.titulo)}">
           <span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span></li>`).join("");
-      items += ts.map(t => { const ok = taskDone(t,ds); return `<li class="${ok?"done":""}">
+      items += ts.map(t => { const ok = taskDone(t,ds); return `<li class="${ok?"done":""}" ${t.diaria?"":dragAttrs("task", t, ds)}>
           <input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" data-date="${ds}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
           <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>${t.diaria?'<span class="tag">todo dia</span>':""}</li>`; }).join("");
       items += ps.map(({p}) => { const st = payStatus(p,ds); return `<li>
           <span class="dot ${catOf(p)}" style="margin-left:30px"></span><span class="t">${esc(p.titulo)} <small style="color:var(--muted)">${money(p.valor)}</small></span>
           <button class="status ${st}" data-action="toggle-pay" data-id="${p.id}" data-date="${ds}">${statusLabel(st)}</button></li>`; }).join("");
-      html += `<section class="${cls.join(" ")}">
+      html += `<section class="${cls.join(" ")}" data-drop="${ds}" data-zone="agenda">
         <button class="wk-head" data-action="select-day" data-date="${ds}" aria-label="Abrir ${esc(cap(d.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})))}">
           <span class="wn">${d.getDate()}</span><span><span class="wd2">${cap(d.toLocaleDateString("pt-BR",{weekday:"long"}))}</span> <span class="wm">${mes}</span></span>
           <span class="wc">${total ? `${feitos} de ${total} feitos` : ""}</span>
@@ -657,18 +704,24 @@ header.top h1{color:var(--ink)}
     for (let d = start; d <= end; d = addDays(d,1)){
       const ds = iso(d), inMonth = ym(ds) === ui.calMonth;
       const cls = ["mcell"]; if (!inMonth) cls.push("out"); if (ds === today) cls.push("today");
-      if (!inMonth){ html += `<div class="${cls.join(" ")}"><span class="mn">${d.getDate()}</span></div>`; continue; }
+      if (!inMonth){ html += `<div class="${cls.join(" ")}" data-drop="${ds}" data-zone="agenda"><span class="mn">${d.getDate()}</span></div>`; continue; }
       const ev = eventsOn(ds), ts = tasksOn(ds), ps = [];
       const tsDone = ts.filter(t => taskDone(t,ds)).length;
-      const chips = ev.slice(0,3).map(e => `<div class="ev ${catOf(e)} ${e.feito?"done":""}">${e.hora?`<b>${esc(e.hora)}</b> `:""}${esc(e.titulo)}</div>`).join("")
-        + (ev.length > 3 ? `<div class="ev" style="background:none;color:var(--muted)">+${ev.length-3}</div>` : "");
+      const its = [...ev.map(e => ({k:"event", x:e})), ...ts.filter(t => !t.diaria).map(t => ({k:"task", x:t}))];
+      const chips = its.slice(0,4).map(({k,x}) => k === "event"
+          ? `<div class="ev ${catOf(x)} ${x.feito?"done":""}" ${dragAttrs("event", x, ds)}>${x.hora?`<b>${esc(x.hora)}</b> `:""}${esc(x.titulo)}</div>`
+          : `<div class="ev tsk ${catOf(x)} ${taskDone(x,ds)?"done":""}" ${dragAttrs("task", x, ds)}>${esc(x.titulo)}</div>`).join("")
+        + (its.length > 4 ? `<div class="ev more">+${its.length-4}</div>` : "");
       const dots = [...ev.slice(0,4), ...ps.slice(0,2).map(x => x.p)].map(x => `<span class="${catOf(x)}"></span>`).join("");
       const extra = [ts.length ? `${tsDone}/${ts.length} tarefas` : "", ps.length ? `${ps.length} pagamento${ps.length>1?"s":""}` : ""].filter(Boolean).join(" · ");
-      html += `<button class="${cls.join(" ")}" data-action="select-day" data-date="${ds}" aria-pressed="${ui.selected===ds}" aria-label="${d.getDate()}: ${ev.length} compromissos">
+      html += `<button class="${cls.join(" ")}" data-action="select-day" data-date="${ds}" data-drop="${ds}" data-zone="agenda" aria-pressed="${ui.selected===ds}" aria-label="${d.getDate()}: ${ev.length} compromissos">
         <span class="mn">${d.getDate()}</span>${chips}<span class="mdots">${dots}</span>${extra?`<span class="tk">${extra}</span>`:""}</button>`;
     }
     document.getElementById("week").innerHTML = html + '</div>';
   }
+
+  // atributos para um item que pode ser arrastado para outra data
+  const dragAttrs = (kind, x, date, extra) => `data-drag="${kind}" data-id="${esc(x.id)}" data-date="${date}" data-title="${esc(x.titulo)}" data-cat="${catOf(x)}"${extra||""}`;
 
   const catPicker = (name) => `<div class="catsel" role="radiogroup" aria-label="Categoria">
       <label><input type="radio" name="${name}" value="loja" ${ui.lastCat==="loja"?"checked":""}><span class="dot loja"></span>Loja</label>
@@ -681,15 +734,25 @@ header.top h1{color:var(--ink)}
     const title = cap(d.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}));
     const rel = ds===todayIso() ? "Hoje" : ds < todayIso() ? "Dia que já passou" : "Dia futuro";
     const panel = document.getElementById("panel");
+    if (!document.getElementById("panel-body")){
+      panel.innerHTML = `<div class="panel-nav">
+          <button class="iconbtn" type="button" data-action="day-prev" aria-label="Dia anterior">‹</button>
+          <input type="date" id="panel-date" aria-label="Escolher dia e mês">
+          <button class="iconbtn" type="button" data-action="day-next" aria-label="Próximo dia">›</button>
+        </div><div id="panel-body"></div>`;
+    }
+    const pd = document.getElementById("panel-date");
+    if (document.activeElement !== pd) pd.value = ds;
+    const pbody = document.getElementById("panel-body");
     const act = document.activeElement, focusId = act && act.form && act.type === "text" ? act.form.id : null;
-    const keep = {}; panel.querySelectorAll("form input[type=text], form input[type=time]").forEach(i => keep[i.form.id+i.name] = i.value);
-    panel.innerHTML = `
+    const keep = {}; pbody.querySelectorAll("form input[type=text], form input[type=time]").forEach(i => keep[i.form.id+i.name] = i.value);
+    pbody.innerHTML = `
       <h2>${esc(title)}</h2><p class="sub">${rel}</p>
       <section>
         <h3>Checklist do dia ${ts.length?`<small>${done} de ${ts.length}</small>`:""}</h3>
         ${ts.length?`<div class="bar" style="margin:0 0 10px"><i style="width:${Math.round(done/ts.length*100)}%"></i></div>`:""}
         ${ts.length ? `<ul class="list">${ts.map(t => { const ok = taskDone(t,ds);
-          return `<li class="${ok?"done":""}"><input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
+          return `<li class="${ok?"done":""}" ${t.diaria?"":dragAttrs("task", t, ds)}><input type="checkbox" class="check" data-action="toggle-task" data-id="${t.id}" ${ok?"checked":""} aria-label="Concluir ${esc(t.titulo)}">
             <span class="dot ${catOf(t)}"></span><span class="t">${esc(t.titulo)}</span>${t.diaria?'<span class="tag">todo dia</span>':""}
             <button class="del" data-action="del-task" data-id="${t.id}" aria-label="Apagar tarefa">×</button></li>`; }).join("")}</ul>`
           : `<p class="empty">Nenhuma tarefa ainda. O que precisa sair do papel hoje?</p>`}
@@ -702,7 +765,7 @@ header.top h1{color:var(--ink)}
       </section>
       <section>
         <h3>Compromissos</h3>
-        ${ev.length ? `<ul class="list">${ev.map(e => `<li class="${e.feito?"done":""}"><input type="checkbox" class="check" data-action="toggle-event" data-id="${e.id}" ${e.feito?"checked":""} aria-label="Concluir ${esc(e.titulo)}"><span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span>
+        ${ev.length ? `<ul class="list">${ev.map(e => `<li class="${e.feito?"done":""}" ${dragAttrs("event", e, ds)}><input type="checkbox" class="check" data-action="toggle-event" data-id="${e.id}" ${e.feito?"checked":""} aria-label="Concluir ${esc(e.titulo)}"><span class="dot ${catOf(e)}"></span><span class="time">${esc(e.hora||"—")}</span><span class="t">${esc(e.titulo)}</span>
           <button class="del" data-action="del-event" data-id="${e.id}" aria-label="Apagar compromisso">×</button></li>`).join("")}</ul>`
           : `<p class="empty">Dia livre de compromissos.</p>`}
         <form class="add" id="form-event">
@@ -717,7 +780,7 @@ header.top h1{color:var(--ink)}
           return `<li><span class="dot ${catOf(p)}"></span><span class="t">${esc(p.titulo)}<br><small style="color:var(--muted)">${money(p.valor)}${pc?`, parcela ${pc}`:""}</small></span>
             <button class="status ${st}" data-action="toggle-pay" data-id="${p.id}" data-date="${ds}">${statusLabel(st)}</button></li>`; }).join("")}</ul>
       </section>` : ""}`;
-    panel.querySelectorAll("form input[type=text], form input[type=time]").forEach(i => { if (keep[i.form.id+i.name]) i.value = keep[i.form.id+i.name]; });
+    pbody.querySelectorAll("form input[type=text], form input[type=time]").forEach(i => { if (keep[i.form.id+i.name]) i.value = keep[i.form.id+i.name]; });
     if (focusId){ const f = document.getElementById(focusId); if (f) f.querySelector("input[type=text]").focus(); }
   }
 
@@ -725,7 +788,8 @@ header.top h1{color:var(--ink)}
     const [y,m] = ui.month.split("-").map(Number);
     document.getElementById("month-label").textContent = cap(new Date(y,m-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"}));
     const rows = [];
-    data.pagamentos.filter(visible).forEach(p => occurrencesIn(p, ui.month).forEach(o => rows.push({p, date:o.date, idx:o.idx})));
+    data.pagamentos.filter(visible).forEach(p => occurrencesIn(p, ui.month).forEach(o => rows.push({p, date:o.date, idx:o.idx, orig:o.orig||""})));
+    const payDrag = r => dragAttrs("pay", r.p, r.date, ` data-idx="${r.idx}" data-orig="${r.orig}"`);
     rows.sort((a,b) => a.date.localeCompare(b.date) || String(a.p.titulo).localeCompare(String(b.p.titulo)));
     let total=0, paid=0, late=0; const byCat = {loja:0, pessoal:0};
     rows.forEach(r => { const v = Number(r.p.valor)||0, st = payStatus(r.p, r.date);
@@ -737,10 +801,10 @@ header.top h1{color:var(--ink)}
       <div class="total late"><span>Atrasado</span><strong>${money(late)}</strong></div>`;
     document.getElementById("split").innerHTML = ui.filtro === "todos" && rows.length
       ? `<span><i class="dot loja"></i>Loja ${money(byCat.loja)}</span><span><i class="dot pessoal"></i>Pessoal ${money(byCat.pessoal)}</span>` : "";
-    const rowHtml = ({p,date,idx}) => {
+    const rowHtml = (r) => { const {p,date,idx,orig} = r;
       const st = payStatus(p,date), d = parse(date), pc = parcela(p,idx), desc = describe(p);
-      const meta = [pc ? `Parcela ${pc}` : "", desc].filter(Boolean).join(". ");
-      return `<div class="row ${catOf(p)}">
+      const meta = [pc ? `Parcela ${pc}` : "", desc, orig ? `Remarcado de ${br(orig).slice(0,5)}` : ""].filter(Boolean).join(". ");
+      return `<div class="row ${catOf(p)}" ${payDrag(r)}>
         <div class="d">${d.getDate()}<small>${WD[(d.getDay()+6)%7]}</small></div>
         <button class="n" data-action="edit-pay" data-id="${p.id}" aria-label="Editar ${esc(p.titulo)}"><strong>${esc(p.titulo)}</strong>${meta?`<small>${esc(meta)}</small>`:""}</button>
         <div class="v">${money(p.valor)}</div>
@@ -765,13 +829,13 @@ header.top h1{color:var(--ink)}
       const dayRows = inMonth ? rows.filter(r => r.date === ds) : [];
       const sum = dayRows.reduce((t,r) => t + (Number(r.p.valor)||0), 0);
       const cls = ["mcell"]; if (!inMonth) cls.push("out"); if (ds === today) cls.push("today");
-      const chips = dayRows.slice(0,3).map(r => `<div class="chip pay ${catOf(r.p)} ${payStatus(r.p,ds)}" title="${esc(r.p.titulo)} ${money(r.p.valor)}">${esc(r.p.titulo)}</div>`).join("")
+      const chips = dayRows.slice(0,3).map(r => `<div class="chip pay ${catOf(r.p)} ${payStatus(r.p,ds)}" ${payDrag(r)} title="${esc(r.p.titulo)} ${money(r.p.valor)}">${esc(r.p.titulo)}</div>`).join("")
         + (dayRows.length > 3 ? `<div class="chip more">+${dayRows.length-3}</div>` : "");
       const dots = dayRows.slice(0,6).map(r => `<span class="${catOf(r.p)} ${payStatus(r.p,ds)==="late"?"late":""}"></span>`).join("");
       html += inMonth
-        ? `<button class="${cls.join(" ")}" data-action="pay-day" data-date="${ds}" aria-pressed="${ui.payDay===ds}" aria-label="${d.getDate()}, ${dayRows.length} pagamentos">
+        ? `<button class="${cls.join(" ")}" data-action="pay-day" data-date="${ds}" data-drop="${ds}" data-zone="pay" aria-pressed="${ui.payDay===ds}" aria-label="${d.getDate()}, ${dayRows.length} pagamentos">
             <span class="mn">${d.getDate()}</span>${chips}<span class="mdots">${dots}</span>${dayRows.length?`<span class="sum">${money(sum)}</span>`:""}</button>`
-        : `<div class="${cls.join(" ")}"><span class="mn">${d.getDate()}</span></div>`;
+        : `<div class="${cls.join(" ")}" data-drop="${ds}" data-zone="pay"><span class="mn">${d.getDate()}</span></div>`;
     }
     cal.innerHTML = html;
     if (ui.payDay){
@@ -865,6 +929,7 @@ header.top h1{color:var(--ink)}
         render(); break;
       }
       case "go-today": ui.weekStart = startOfWeek(new Date()); ui.selected = todayIso(); ui.calMonth = ym(todayIso()); render(); break;
+      case "day-prev": case "day-next": setSelected(iso(addDays(parse(ui.selected), el.dataset.action === "day-next" ? 1 : -1))); break;
       case "add-on-day": {
         ui.selected = el.dataset.date; render();
         const f = document.getElementById("form-event");
@@ -956,6 +1021,161 @@ header.top h1{color:var(--ink)}
       ui.month = ym(vencimento); resetPayForm(); render();
     }
   });
+
+  /* ---------- escolher o dia no painel ---------- */
+  function setSelected(ds){ ui.selected = ds; ui.weekStart = startOfWeek(parse(ds)); ui.calMonth = ym(ds); render(); }
+  document.addEventListener("change", e => {
+    if (e.target.id !== "panel-date") return;
+    const v = e.target.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number(v.slice(0,4)) < 1900) return;
+    if (v !== ui.selected) setSelected(v);
+  });
+  document.addEventListener("focusout", e => { if (e.target.id === "panel-date") e.target.value = ui.selected; });
+
+  /* ---------- mudar pagamento de data ---------- */
+  const dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
+  const shortDate = s => br(s).slice(0,5);
+  function askMoveScope(p, from, to, r, orig){
+    const modal = document.getElementById("move-modal");
+    const delta = dayDiff(orig, to), n = Math.abs(delta);
+    document.getElementById("move-text").textContent = `"${p.titulo}" se repete. Quer mudar só o pagamento de ${shortDate(from)} ou todos?`;
+    document.getElementById("move-one").textContent = `Só o de ${shortDate(from)} passa para ${shortDate(to)}`;
+    document.getElementById("move-all").textContent = r.unidade === "mes" && r.modo !== "semana"
+      ? `Todas passam para o dia ${parse(to).getDate()}`
+      : `Todas ${delta > 0 ? "andam" : "voltam"} ${n} dia${n > 1 ? "s" : ""}`;
+    modal.hidden = false;
+    modal.querySelector("[data-choice=one]").focus();
+    return new Promise(resolve => {
+      const done = v => { modal.hidden = true; modal.removeEventListener("click", onClick); document.removeEventListener("keydown", onKey); resolve(v); };
+      const onClick = e => { const b = e.target.closest("[data-choice]"); if (b) done(b.dataset.choice); else if (e.target === modal) done("cancel"); };
+      const onKey = e => { if (e.key === "Escape") done("cancel"); };
+      modal.addEventListener("click", onClick); document.addEventListener("keydown", onKey);
+    });
+  }
+  async function movePay(p, o, to){
+    const from = o.date, orig = o.orig || o.date;
+    if (to === from) return;
+    const r = rep(p);
+    const pagos0 = (p.pagos||[]).slice();
+    if (!r){
+      update("pagamentos", p.id, {vencimento: to, movidos: {}, pagos: pagos0.map(x => x === from ? to : x)});
+      toast(`Pagamento mudado para ${shortDate(to)}`); return;
+    }
+    const choice = await askMoveScope(p, from, to, r, orig);
+    if (choice === "one"){
+      const mv = {...(p.movidos||{})};
+      if (to === orig) delete mv[orig]; else mv[orig] = to;
+      update("pagamentos", p.id, {movidos: mv, pagos: pagos0.map(x => x === from ? to : x)});
+      toast(`Só esta parcela mudou para ${shortDate(to)}`);
+    } else if (choice === "all"){
+      const delta = dayDiff(orig, to);
+      const newSd = addDays(parse(p.vencimento), delta);
+      const newRep = {...r}; if (newRep.ate) newRep.ate = iso(addDays(parse(newRep.ate), delta));
+      const natNew = k => iso(occDate(newSd, newRep, k));
+      // parcelas remarcadas uma a uma continuam onde estavam (menos a que foi arrastada)
+      const mv = {}, movedBack = {};
+      Object.entries(p.movidos||{}).forEach(([de, para]) => {
+        const k = idxOf(p, de); movedBack[para] = k;
+        if (k < 0 || k === o.idx) return;
+        const nk = natNew(k); if (nk !== para) mv[nk] = para;
+      });
+      const land = natNew(o.idx); if (land !== to) mv[land] = to;
+      const pagos = pagos0.map(x => {
+        if (x.length !== 10) return x;
+        if (x in movedBack) return movedBack[x] === o.idx ? to : x;
+        const k = idxOf(p, x); if (k < 0) return x;
+        return k === o.idx ? to : natNew(k);
+      });
+      update("pagamentos", p.id, {vencimento: iso(newSd), repeticao: newRep, mensal: false, movidos: mv, pagos});
+      toast("Todas as parcelas foram mudadas");
+    }
+  }
+
+  /* ---------- arrastar para outra data (segurar e puxar) ---------- */
+  let dragSt = null, swallowClickUntil = 0;
+  function dragCleanup(){
+    const st = dragSt; dragSt = null; if (!st) return;
+    clearTimeout(st.timer); cancelAnimationFrame(st.raf);
+    if (st.ghost) st.ghost.remove();
+    if (st.over) st.over.classList.remove("drop-over");
+    st.src.classList.remove("dragging"); document.body.classList.remove("is-dragging");
+  }
+  function dragStart(st){
+    st.active = true; clearTimeout(st.timer);
+    const g = document.createElement("div");
+    g.className = "drag-ghost " + (st.src.dataset.cat || "");
+    g.textContent = st.src.dataset.title || "";
+    document.body.appendChild(g); st.ghost = g;
+    st.zone = st.src.dataset.drag === "pay" ? "pay" : "agenda";
+    st.src.classList.add("dragging"); document.body.classList.add("is-dragging");
+    if (navigator.vibrate) try { navigator.vibrate(15); } catch(e){}
+    dragMove(st.x, st.y);
+    const tick = () => {
+      if (!dragSt || !dragSt.active) return;
+      const edge = 70, y = dragSt.y;
+      const sp = y < edge ? -Math.ceil((edge - y)/5) : y > innerHeight - edge ? Math.ceil((y - innerHeight + edge)/5) : 0;
+      if (sp){ window.scrollBy(0, sp); dragMove(dragSt.x, dragSt.y); }
+      dragSt.raf = requestAnimationFrame(tick);
+    };
+    st.raf = requestAnimationFrame(tick);
+  }
+  function dragMove(x, y){
+    const st = dragSt; st.x = x; st.y = y;
+    const touch = st.type === "touch";
+    st.ghost.style.transform = `translate(${Math.round(touch ? x - 60 : x + 14)}px, ${Math.round(touch ? y - 56 : y + 10)}px)`;
+    const hit = document.elementFromPoint(x, y);
+    const over = hit ? hit.closest(`[data-drop][data-zone="${st.zone}"]`) : null;
+    if (over !== st.over){
+      if (st.over) st.over.classList.remove("drop-over");
+      if (over) over.classList.add("drop-over");
+      st.over = over;
+    }
+  }
+  function dragDrop(src, to){
+    const d = src.dataset, id = d.id;
+    if (!to || to === d.date) return;
+    if (d.drag === "task" || d.drag === "event"){
+      const col = d.drag === "task" ? "tarefas" : "compromissos";
+      if (!data[col].find(x => x.id === id)) return;
+      update(col, id, {data: to});
+      toast(`${d.drag === "task" ? "Tarefa mudada" : "Compromisso mudado"} para ${shortDate(to)}`);
+    } else if (d.drag === "pay"){
+      const p = data.pagamentos.find(x => x.id === id); if (!p) return;
+      movePay(p, {date: d.date, idx: Number(d.idx)||0, orig: d.orig || ""}, to);
+    }
+  }
+  document.addEventListener("pointerdown", e => {
+    dragCleanup(); // descarta um arrasto que ficou pela metade
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const src = e.target.closest("[data-drag]");
+    if (!src || e.target.closest("input,select,textarea,.del,.status")) return;
+    dragSt = {src, x:e.clientX, y:e.clientY, x0:e.clientX, y0:e.clientY, pid:e.pointerId, type:e.pointerType, active:false};
+    if (e.pointerType === "touch"){ const st = dragSt; st.timer = setTimeout(() => { if (dragSt === st) dragStart(st); }, 320); }
+  });
+  document.addEventListener("pointermove", e => {
+    const st = dragSt; if (!st || e.pointerId !== st.pid) return;
+    if (st.type !== "touch" && e.buttons === 0){ dragCleanup(); return; } // botão foi solto fora da janela
+    if (!st.active){
+      const dist = Math.hypot(e.clientX - st.x0, e.clientY - st.y0);
+      if (st.type === "touch"){ if (dist > 10) dragCleanup(); return; } // mexeu antes de segurar: é rolagem
+      if (dist < 6) return;
+      st.x = e.clientX; st.y = e.clientY; dragStart(st);
+    }
+    e.preventDefault(); dragMove(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointerup", e => {
+    const st = dragSt; if (!st || e.pointerId !== st.pid) return;
+    if (st.active){
+      const to = st.over && st.over.dataset.drop, src = st.src;
+      swallowClickUntil = Date.now() + 250;
+      dragCleanup(); dragDrop(src, to);
+    } else dragCleanup();
+  });
+  document.addEventListener("pointercancel", e => { if (dragSt && e.pointerId === dragSt.pid) dragCleanup(); });
+  document.addEventListener("touchmove", e => { if (dragSt && dragSt.active) e.preventDefault(); }, {passive:false});
+  document.addEventListener("contextmenu", e => { if (dragSt && e.target.closest("[data-drag]")) e.preventDefault(); });
+  window.addEventListener("click", e => { if (Date.now() < swallowClickUntil){ swallowClickUntil = 0; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && dragSt && dragSt.active) dragCleanup(); });
 
   /* ---------- início ---------- */
   resetPayForm();
